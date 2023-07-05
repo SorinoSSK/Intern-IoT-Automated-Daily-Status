@@ -21,6 +21,7 @@ import ssl
 ### Global Variables
 MADS_FILE_NAME              = "mads_config.xlsx"
 VFT_FILE_NAME               = "vft_config.xlsx"
+VFT_FILE_NAME_PATH          = "Continuous Execution/vft_config.xlsx"
 UNITS_SHEET                 = "units_sheet"
 DATA_SHEET                  = "data_sheet"
 ACCOUNT_SHEET               = "account_sheet"
@@ -45,12 +46,20 @@ PORT                        = None
 FAILED_RETRIEVAL = "Likely a server issue. Refresh the unit's logs data page on platform."
 
 ### User-input data
-def configure_mads():
-    configure_account_fields(MADS_FILE_NAME)
-    configure_data_fields(MADS_FILE_NAME)
-    configure_email_fields(MADS_FILE_NAME)
-    
-    df = pd.read_excel(io=MADS_FILE_NAME, sheet_name=UNITS_SHEET)
+def configure_mads(
+    file = None
+):
+    if file == None:
+        configure_account_fields(MADS_FILE_NAME)
+        configure_data_fields(MADS_FILE_NAME)
+        configure_email_fields(MADS_FILE_NAME)
+    if os.path.exists(file):
+        configure_account_fields(file)
+        configure_data_fields(file)
+        configure_email_fields(file)
+
+
+    df = pd.read_excel(io=file, sheet_name=UNITS_SHEET)
     df = df.fillna("")
     df.drop(df.columns[4], axis=1, inplace=True)
     
@@ -59,12 +68,20 @@ def configure_mads():
         units[row[0]] = (row[1], row[2], row[3])
     return units
 
-def configure_vft():
-    configure_account_fields(VFT_FILE_NAME)
-    configure_data_fields(VFT_FILE_NAME)
-    configure_email_fields(VFT_FILE_NAME)
-    
-    df = pd.read_excel(io=VFT_FILE_NAME, sheet_name=UNITS_SHEET)
+def configure_vft(
+    file = None                                              
+    ):
+    if(file == None):
+        configure_account_fields(VFT_FILE_NAME)
+        configure_data_fields(VFT_FILE_NAME)
+        configure_email_fields(VFT_FILE_NAME)
+    if(os.path.exists(file)):
+        configure_account_fields(file)
+        configure_data_fields(file)
+        configure_email_fields(file)
+
+
+    df = pd.read_excel(io=file, sheet_name=UNITS_SHEET)
     df = df.fillna("")
     df.drop(df.columns[4], axis=1, inplace=True)
     
@@ -467,6 +484,104 @@ def generate_report(mads = False):
     remove_data_dump()
     return rtn
 
+##############################################
+########## Duplicate file for report generator
+
+def generate_report(
+        mads        = False,                                        # By default, MADs is not triggered
+        vft         = True,                                         # Instead, VFT is triggered 
+        path        = None                                          # Define the file to be parsed in (path declared)                                      
+    ):
+##### SECTION 1 
+##### CHECK FILE AVAILABILITY
+    if(path == None):                                               # If no file was parsed in as params
+        print("Error: No excel file was read in the execution")     # Print error message and
+        print("Configuration use default file")
+        path = VFT_FILE_NAME                                        # Default path
+    
+    if(not os.path.exists(path)):                                   # If the directory does not exists
+        print("Error: The directory/file requested does not exist") # Print error message and
+        #return 1                                                    # Return ID Error of 1
+    
+    if(not mads and not vft):                                       # If neither of the state is triggered
+        print("Error: MADs mode or VFT mode are neither used")      # Print error message
+        #return 2                                                    # Return ID Error of 2
+
+##### SECTION 2
+##### GENERATE FILE
+    statusDict = {}                                                 # Dictionary of status
+    rtn = []                                                        
+    document = Document()                                           # Create a new document (docx)
+    document.add_heading("Unit Status", 0)                          # Add heading for the docx
+    table = document.add_table(rows=1, cols=5)                      # Add table for the docx 
+
+    heading_cells = table.rows[0].cells                             # Populate Title for each column
+    heading_cells[0].text = "Unit Name"                             # Unit name
+    if mads:                                                        # On which platform
+        heading_cells[1].text = "On MADs"
+    if vft:
+        heading_cells[1].text = "On VFT"
+    print("Generating report for", heading_cells[1].text)
+    rtn.append(heading_cells[1].text)
+    heading_cells[2].text = "On Dataplicity"                        # On Dataplicity
+    heading_cells[3].text = "Location"                              # Location of Unit
+    heading_cells[4].text = "Remarks"                               # Notes about the unit
+
+    # because there's a dependency between dataplicity status and platform status
+    # if dataplicity offline --> unit is offline regardless of logs shown
+    dataplicity_status = None # handled below
+    
+    if mads:
+        tracked_units      = configure_mads(path)
+        dataplicity_status = run_dataplicity_status()
+        platform_status    = run_mad_status(dataplicity_status, tracked_units)
+
+    if vft:
+        tracked_units      = configure_vft(path)
+        dataplicity_status = run_dataplicity_status()
+        platform_status    = run_vft_status(dataplicity_status, tracked_units)            
+
+    for unit, values in platform_status.items():
+        unit_status_platform = values[0]
+        unit_status_dataplicity = dataplicity_status[unit]
+        location = values[1]
+        remark = values[2]
+        cells = table.add_row().cells
+        if unit_status_platform == "online":
+            _set_cell_background(cells[1], "CEEDD0")
+        elif unit_status_platform == "offline":
+            _set_cell_background(cells[1], fill="F6CACF")
+        elif unit_status_platform == "partial":
+            _set_cell_background(cells[1], fill="FBEBA6")
+        elif unit_status_platform == "error":
+            _set_cell_background(cells[1], fill="FF0000")
+
+        if unit_status_dataplicity == "online":
+            _set_cell_background(cells[2], "CEEDD0")
+        elif unit_status_dataplicity == "offline":
+            _set_cell_background(cells[2], fill="F6CACF")
+        elif unit_status_platform == "partial":
+            _set_cell_background(cells[2], fill="FBEBA6")
+        cells[0].text = unit
+        cells[1].text = unit_status_platform
+        cells[2].text = unit_status_dataplicity
+        cells[3].text = location
+        cells[4].text = remark
+        # print(unit, values)
+        statusDict[unit] = values[0]
+    
+    rtn.append(statusDict)
+    table.style = "Table Grid"
+
+    document.save(OUTPUT_FILE)
+    remove_data_dump()
+    return rtn
+
+
+
+
+
+
 def checkUnitStatus(system, state):
     jsonFile = open('data_dump/status.json')
     unitPrevStatus = json.load(jsonFile)
@@ -551,7 +666,8 @@ def sendHourlyEmail(System, AlertsDevice=[]):
 if __name__ == "__main__":
     print("Starting Script...")
     isMADs = False
-    rtn = generate_report(isMADs)
+    isVFT  = True
+    rtn = generate_report(isMADs, isVFT, path = VFT_FILE_NAME_PATH)
     StoreStatus(rtn[1])
     validSend = True
     while(1):
