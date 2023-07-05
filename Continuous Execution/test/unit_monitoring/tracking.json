@@ -1,0 +1,8 @@
+{
+    "units": {
+        "unit_id": "unit_name"
+    },
+    "recipients": [
+        "email"
+    ]
+}
