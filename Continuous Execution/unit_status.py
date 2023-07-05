@@ -16,12 +16,11 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 import ssl
 
-
-
 ### Global Variables
 MADS_FILE_NAME              = "mads_config.xlsx"
 VFT_FILE_NAME               = "vft_config.xlsx"
-UNITS_SHEET                 = "units_sheet"
+UNITS_SHEET                 = "daily_report_units_sheet"
+HOURLY_UNITS_SHEET          = "closely_monitor_units_sheet"
 DATA_SHEET                  = "data_sheet"
 ACCOUNT_SHEET               = "account_sheet"
 EMAIL_SHEET                 = "email_sheet"
@@ -44,7 +43,7 @@ PORT                        = None
 # Error message
 FAILED_RETRIEVAL = "Likely a server issue. Refresh the unit's logs data page on platform."
 
-### User-input data
+#======================= Configuration =======================#
 def configure_mads():
     configure_account_fields(MADS_FILE_NAME)
     configure_data_fields(MADS_FILE_NAME)
@@ -59,12 +58,15 @@ def configure_mads():
         units[row[0]] = (row[1], row[2], row[3])
     return units
 
-def configure_vft():
+def configure_vft(isHourly):
     configure_account_fields(VFT_FILE_NAME)
     configure_data_fields(VFT_FILE_NAME)
     configure_email_fields(VFT_FILE_NAME)
-    
-    df = pd.read_excel(io=VFT_FILE_NAME, sheet_name=UNITS_SHEET)
+    if isHourly:
+        sheet_to_read = HOURLY_UNITS_SHEET
+    else:
+        sheet_to_read = UNITS_SHEET
+    df = pd.read_excel(io=VFT_FILE_NAME, sheet_name=sheet_to_read)
     df = df.fillna("")
     df.drop(df.columns[4], axis=1, inplace=True)
     
@@ -99,7 +101,7 @@ def configure_email_fields(PLATFORM_FILE_NAME):
             lst[i] = lst[i].strip()
         return lst
         
-    global SMTP_SERVER, SENDER_EMAIL, RECIPIENTS_DAILY, RECIPIENTS_HOURLY, EMAIL_API_KEY
+    global SMTP_SERVER, SENDER_EMAIL, RECIPIENTS_DAILY, RECIPIENTS_HOURLY, EMAIL_API_KEY, PORT
     df = pd.read_excel(io=PLATFORM_FILE_NAME, sheet_name=EMAIL_SHEET)
 
     SMTP_SERVER = df.iloc[0][1]
@@ -109,7 +111,6 @@ def configure_email_fields(PLATFORM_FILE_NAME):
     RECIPIENTS_DAILY = parse_recipients_field(df.iloc[5][1])
     RECIPIENTS_HOURLY = parse_recipients_field(df.iloc[4][1])
     
-
 ### Logic
 # ONLINE    -- Dataplicity online + platform showing logs in the last WITHIN_HOURS
 # PARTIAL   -- Dataplicity online + platform showing logs in the last WITHIN_DAYS
@@ -117,23 +118,23 @@ def configure_email_fields(PLATFORM_FILE_NAME):
 def run_dataplicity_status():
     # get auth token
     url = "https://apps.dataplicity.com/auth/"
-    
     rq = requests.post(url, data=DATAPLICITY_LOGIN)
     token = rq.json()["token"]
 
     endpoint = "https://apps.dataplicity.com/devices/"
     headers = {"Authorization": f"Token {token}"}
-
-    response = requests.get(endpoint, headers=headers)
-    json_dump = response.json()
-    statuses = {}
-    for unit in json_dump:
-        # offline by default
-        statuses[unit["name"]] = "offline"
-        if unit["online"]:
-            statuses[unit["name"]] = "online"
-
-    return statuses
+    try:
+        response = requests.get(endpoint, headers=headers)
+        json_dump = response.json()
+        statuses = {}
+        for unit in json_dump:
+            # offline by default
+            statuses[unit["name"]] = "offline"
+            if unit["online"]:
+                statuses[unit["name"]] = "online"
+        return statuses
+    except Exception as ex:
+        print(ex)
 
 
 def run_mad_status(dataplicity_status, units):
@@ -205,7 +206,6 @@ def run_mad_status(dataplicity_status, units):
             )
 
         count += 1
-
 
         start_track = get_online_from(curr_time, WITHIN_HOURS) # must show data WITHIN_HOURS to be considered 'online'
         data_logs = json_dump["data_dumps"]
@@ -399,8 +399,9 @@ def get_greetings(time):
         return "Good Evening,"
     else: 
         return "Hi,"
+    
 ### Main Code
-def generate_report(mads = False):
+def generate_report(mads = False, isHourly=False):
     statusDict = {}
     rtn = []
     document = Document()
@@ -409,12 +410,12 @@ def generate_report(mads = False):
     heading_cells = table.rows[0].cells
     heading_cells[0].text = "Unit Name"
     if mads:
-        heading_cells[1].text = "On MADs"
+        heading_cells[1].text = "MADs"
     else:
-        heading_cells[1].text = "On VFT"
+        heading_cells[1].text = "VFT"
     print("Generating report for", heading_cells[1].text)
     rtn.append(heading_cells[1].text)
-    heading_cells[2].text = "On Dataplicity"
+    heading_cells[2].text = "Dataplicity"
     heading_cells[3].text = "Location"                     
     heading_cells[4].text = "Remarks"
 
@@ -427,7 +428,7 @@ def generate_report(mads = False):
         dataplicity_status = run_dataplicity_status()
         platform_status = run_mad_status(dataplicity_status, tracked_units)
     else:
-        tracked_units = configure_vft()
+        tracked_units = configure_vft(isHourly)
         dataplicity_status = run_dataplicity_status()
         platform_status = run_vft_status(dataplicity_status, tracked_units)            
 
@@ -471,14 +472,18 @@ def checkUnitStatus(system, state):
     jsonFile = open('data_dump/status.json')
     unitPrevStatus = json.load(jsonFile)
     offlineUnits = []
+    onlineUnits = []
     for i in unitPrevStatus:
         try:
-            if unitPrevStatus[i] != state[i] and state[i] == "offline":
-                offlineUnits.append(i)
+            if i in unitPrevStatus and i in state:
+                if unitPrevStatus[i] != state[i] and state[i] == "offline":
+                    offlineUnits.append(i)
+                elif unitPrevStatus[i] != state[i] and state[i] == "online":
+                    onlineUnits.append(i)
         except:
             print("Error Occured")
-    if offlineUnits != []:
-        sendHourlyEmail(system, offlineUnits)
+    # if offlineUnits != []:
+    sendHourlyEmail(system, offlineUnits, onlineUnits)
 
 def StoreStatus(statusDict):
     json_string = json.dumps(statusDict, indent=4)
@@ -499,8 +504,8 @@ def sendDailyEmail(System):
 
     # add message body
     body = get_greetings(formatted_time) + "\n\n"
-    body += "This Is An Automated Status Report for \"" + formatted_time + "\"\n"
-    body += "The Status Is Collected " + System + "\n\n"
+    body += "This Is An Automated Status Report Generated On " + formatted_time + " Hours\n"
+    body += "The Status Is Collected From " + System + "\n\n"
     body += "Regards," + "\n"
     body += "OfficeUnit-CT3" + "\n"
     message.attach(MIMEText(body, 'plain'))
@@ -515,7 +520,7 @@ def sendDailyEmail(System):
         server.login(SENDER_EMAIL, EMAIL_API_KEY)
         server.sendmail(SENDER_EMAIL, RECIPIENTS_DAILY, message.as_string())
 
-def sendHourlyEmail(System, AlertsDevice=[]):
+def sendHourlyEmail(System, OfflineDevice=[], OnlineDevice=[]):
     port = PORT # For SSL
 
     formatted_time = datetime.datetime.now().strftime("%H:%M") # get current time
@@ -527,11 +532,24 @@ def sendHourlyEmail(System, AlertsDevice=[]):
 
     # add message body
     body = get_greetings(formatted_time) + "\n\n"
-    body += "This is an alert report! Current time: " + formatted_time + "\n"
-    body += "The Following Device(s) have their status changed to offline.\n"
+    body += "This Is An Hourly Alert Report Generated On " + formatted_time + " Hours\n"
+    body += "The Status Is Collected From " + System + "\n\n"
+    body += "The Following Device(s) Have Their Status Changed To OFFLINE.\n"
     body += "---------------------------------\n"
-    for i in AlertsDevice:
-        body += i + "\n"
+    if OfflineDevice != []:
+        for i in OfflineDevice:
+            body += i + "\n"
+    else:
+        body += "None\n"
+    body += "---------------------------------\n"
+    body += "\n"
+    body += "The Following Device(s) Have Their Status Changed To ONLINE.\n"
+    body += "---------------------------------\n"
+    if OnlineDevice != []:
+        for i in OnlineDevice:
+            body += i + "\n"
+    else:
+        body += "None\n"
     body += "---------------------------------\n"
     body += "\n"
     body += "Regards," + "\n"
@@ -551,33 +569,36 @@ def sendHourlyEmail(System, AlertsDevice=[]):
 if __name__ == "__main__":
     print("Starting Script...")
     isMADs = False
-    rtn = generate_report(isMADs)
+    rtn = generate_report(isMADs, isHourly=False)
     StoreStatus(rtn[1])
     validSend = True
     while(1):
-        currTime = datetime.datetime.now().strftime("%H:%M")
-        mins = currTime.split(":")[1]
-        if (currTime == "14:00" or currTime == "14:01") and validSend:
-            print("==============================================")
-            print("Starting 1400 Status Check.")
-            print("==============================================")
-            rtn = generate_report(isMADs)               #Generate report
-            sendDailyEmail(rtn[0])                      #Send Daily Email
-            checkUnitStatus(rtn[0], rtn[1]);            #Check Status
-            StoreStatus(rtn[1])                         #Overwrite Status
-            validSend = False
-            print("==============================================")
-        elif (mins == "30" or mins == "31") and not validSend:
-            print("==============================================")
-            print("Resetting Checks.")
-            validSend = True
-            print("==============================================")
-        elif (mins == "00" or min =="01") and validSend:
-            print("==============================================")
-            print("Starting Hourly Check for", currTime, ".")
-            print("==============================================")
-            rtn = generate_report(isMADs)               #Generate report
-            checkUnitStatus(rtn[0], rtn[1]);            #Check Status
-            StoreStatus(rtn[1])                         #Overwrite Status
-            validSend = False
-            print("==============================================")
+        try:
+            currTime = datetime.datetime.now().strftime("%H:%M")
+            mins = currTime.split(":")[1]
+            if (currTime == "14:00" or currTime == "14:01") and validSend:
+                print("==============================================")
+                print("Starting 1400 Status Check.")
+                print("==============================================")
+                rtn = generate_report(isMADs, isHourly=False)               #Generate report
+                sendDailyEmail(rtn[0])                      #Send Daily Email
+                checkUnitStatus(rtn[0], rtn[1]);            #Check Status
+                StoreStatus(rtn[1])                         #Overwrite Status
+                validSend = False
+                print("==============================================")
+            elif (mins == "30" or mins == "31") and not validSend:
+                print("==============================================")
+                print("Resetting Checks.")
+                validSend = True
+                print("==============================================")
+            elif (mins == "00" or min =="01") and validSend:
+                print("==============================================")
+                print("Starting Hourly Check for", currTime, ".")
+                print("==============================================")
+                rtn = generate_report(isMADs, isHourly=True)               #Generate report
+                checkUnitStatus(rtn[0], rtn[1]);            #Check Status
+                StoreStatus(rtn[1])                         #Overwrite Status
+                validSend = False
+                print("==============================================")
+        except Exception as ex:
+            print(ex)
