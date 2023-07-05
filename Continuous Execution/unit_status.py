@@ -677,7 +677,7 @@ if __name__ == "__main__":
             print("==============================================")
             print("Starting 1400 Status Check.")
             print("==============================================")
-            rtn = generate_report(isMADs)               #Generate report
+            rtn = generate_report(isMADs, isVFT, path = VFT_FILE_NAME_PATH)               #Generate report
             sendDailyEmail(rtn[0])                      #Send Daily Email
             checkUnitStatus(rtn[0], rtn[1]);            #Check Status
             StoreStatus(rtn[1])                         #Overwrite Status
@@ -692,7 +692,7 @@ if __name__ == "__main__":
             print("==============================================")
             print("Starting Hourly Check for", currTime, ".")
             print("==============================================")
-            rtn = generate_report(isMADs)               #Generate report
+            rtn = generate_report(isMADs, isVFT, path = VFT_FILE_NAME_PATH)               #Generate report
             checkUnitStatus(rtn[0], rtn[1]);            #Check Status
             StoreStatus(rtn[1])                         #Overwrite Status
             validSend = False
