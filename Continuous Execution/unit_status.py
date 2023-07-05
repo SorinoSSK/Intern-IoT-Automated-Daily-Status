@@ -569,8 +569,7 @@ def sendHourlyEmail(System, OfflineDevice=[], OnlineDevice=[]):
 if __name__ == "__main__":
     print("Starting Script...")
     isMADs = False
-    rtn = generate_report(isMADs, isHourly=True)
-    checkUnitStatus(rtn[0], rtn[1]);            #Check Status
+    rtn = generate_report(isMADs, isHourly=False)
     StoreStatus(rtn[1])
     validSend = True
     while(1):
