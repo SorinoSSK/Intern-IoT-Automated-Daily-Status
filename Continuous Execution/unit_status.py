@@ -663,6 +663,43 @@ def sendHourlyEmail(System, AlertsDevice=[]):
         server.login(SENDER_EMAIL, EMAIL_API_KEY)
         server.sendmail(SENDER_EMAIL, RECIPIENTS_HOURLY, message.as_string())
 
+############################################################################
+#
+# Function: sysRest
+#
+# Use: This function is going to be inserted into the while loop to allow
+# some rest for the CPU, which saves a lot of energy and RAM use for the adv
+# board
+#
+# Though there has no detail to prove the efficiency of this delay, saving 
+# resource is still rather a good practice for a real time system, instead
+# of running in the while loop all the time
+#
+# This function allows rest until 29th min or 59th min of hour, to prepare
+# for runtime of the function in a timely manner
+#
+# Placement: In main function, while loop, at the start of every while loop
+#
+############################################################################
+
+def sysRest():
+    currTime = datetime.datetime.now().strftime("%H:%M:%S")
+    mins = currTime.split(":")[1]
+    sec  = currTime.split(":")[2]
+    timeToSleep = 0
+    if(mins <=29 and mins>=0):          
+        timeToSleep = (29 - mins)*60
+        if(sec != 0 ):
+            timeToSleep -= sec
+    
+    if(mins <=59 and mins>=30):
+        timeToSleep = (59 - mins)*60
+        if(sec != 0):
+            timeToSleep -= sec
+
+    if timeToSleep != 0:
+        time.sleep(timeToSleep)
+
 if __name__ == "__main__":
     print("Starting Script...")
     isMADs = False
@@ -671,6 +708,7 @@ if __name__ == "__main__":
     StoreStatus(rtn[1])
     validSend = True
     while(1):
+        #sysRest()                                                                        #uncomment this out to allow delay
         currTime = datetime.datetime.now().strftime("%H:%M")
         mins = currTime.split(":")[1]
         if (currTime == "14:00" or currTime == "14:01") and validSend:
