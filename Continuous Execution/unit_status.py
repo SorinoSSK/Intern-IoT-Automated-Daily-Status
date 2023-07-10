@@ -592,8 +592,7 @@ def checkUnitStatus(system, state):
                 offlineUnits.append(i)
         except:
             print("Error Occured")
-    if offlineUnits != []:
-        sendHourlyEmail(system, offlineUnits)
+    sendHourlyEmail(system, offlineUnits)
 
 def StoreStatus(statusDict):
     json_string = json.dumps(statusDict, indent=4)
@@ -685,7 +684,9 @@ def sendHourlyEmail(System, AlertsDevice=[]):
 def sysRest():
     currTime = datetime.datetime.now().strftime("%H:%M:%S")
     mins = currTime.split(":")[1]
+    mins = int(mins)
     sec  = currTime.split(":")[2]
+    sec  = int(sec)
     timeToSleep = 0
     if(mins <=29 and mins>=0):          
         timeToSleep = (29 - mins)*60
@@ -697,7 +698,13 @@ def sysRest():
         if(sec != 0):
             timeToSleep -= sec
 
-    if timeToSleep != 0:
+    if timeToSleep > 0:
+        print("#####################")
+        print()
+        print("Proceed to sleep")
+        print("Elapsed time: ",int(timeToSleep/60) ,":",int(timeToSleep%60))
+        print()
+        print("#####################")
         time.sleep(timeToSleep)
 
 if __name__ == "__main__":
@@ -708,7 +715,7 @@ if __name__ == "__main__":
     StoreStatus(rtn[1])
     validSend = True
     while(1):
-        #sysRest()                                                                        #uncomment this out to allow delay
+        sysRest()                                                                        #uncomment this out to allow delay
         currTime = datetime.datetime.now().strftime("%H:%M")
         mins = currTime.split(":")[1]
         if (currTime == "14:00" or currTime == "14:01") and validSend:
