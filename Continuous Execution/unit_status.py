@@ -600,5 +600,6 @@ if __name__ == "__main__":
                 StoreStatus(rtn[1])                         #Overwrite Status
                 validSend = False
                 print("==============================================")
+            time.sleep(30)
         except Exception as ex:
             print(ex)
