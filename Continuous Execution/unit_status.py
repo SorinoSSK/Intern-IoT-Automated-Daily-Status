@@ -683,21 +683,22 @@ def sendHourlyEmail(System, AlertsDevice=[]):
 
 def sysRest():
     currTime = datetime.datetime.now().strftime("%H:%M:%S")
+    print("Current time is: ", currTime)
     mins = currTime.split(":")[1]
     mins = int(mins)
     sec  = currTime.split(":")[2]
     sec  = int(sec)
     timeToSleep = 0
-    if(mins <=29 and mins>=0):          
+    if(mins <29 and mins>1):          
         timeToSleep = (29 - mins)*60
         if(sec != 0 ):
             timeToSleep -= sec
     
-    if(mins <=59 and mins>=30):
+    if(mins <59 and mins>31):
         timeToSleep = (59 - mins)*60
         if(sec != 0):
             timeToSleep -= sec
-
+    print(timeToSleep)
     if timeToSleep > 0:
         print("#####################")
         print()
@@ -706,6 +707,9 @@ def sysRest():
         print()
         print("#####################")
         time.sleep(timeToSleep)
+        print()
+        print("System awake again...")
+        print()
 
 if __name__ == "__main__":
     print("Starting Script...")
