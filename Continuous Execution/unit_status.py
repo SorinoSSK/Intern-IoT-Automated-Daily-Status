@@ -16,13 +16,11 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
 import ssl
 
-
-
 ### Global Variables
 MADS_FILE_NAME              = "mads_config.xlsx"
 VFT_FILE_NAME               = "vft_config.xlsx"
-VFT_FILE_NAME_PATH          = "Continuous Execution/vft_config.xlsx"
-UNITS_SHEET                 = "units_sheet"
+UNITS_SHEET                 = "daily_report_units_sheet"
+HOURLY_UNITS_SHEET          = "closely_monitor_units_sheet"
 DATA_SHEET                  = "data_sheet"
 ACCOUNT_SHEET               = "account_sheet"
 EMAIL_SHEET                 = "email_sheet"
@@ -45,21 +43,13 @@ PORT                        = None
 # Error message
 FAILED_RETRIEVAL = "Likely a server issue. Refresh the unit's logs data page on platform."
 
-### User-input data
-def configure_mads(
-    file = None
-):
-    if file == None:
-        configure_account_fields(MADS_FILE_NAME)
-        configure_data_fields(MADS_FILE_NAME)
-        configure_email_fields(MADS_FILE_NAME)
-    if os.path.exists(file):
-        configure_account_fields(file)
-        configure_data_fields(file)
-        configure_email_fields(file)
-
-
-    df = pd.read_excel(io=file, sheet_name=UNITS_SHEET)
+#======================= Configuration =======================#
+def configure_mads():
+    configure_account_fields(MADS_FILE_NAME)
+    configure_data_fields(MADS_FILE_NAME)
+    configure_email_fields(MADS_FILE_NAME)
+    
+    df = pd.read_excel(io=MADS_FILE_NAME, sheet_name=UNITS_SHEET)
     df = df.fillna("")
     df.drop(df.columns[4], axis=1, inplace=True)
     
@@ -68,20 +58,15 @@ def configure_mads(
         units[row[0]] = (row[1], row[2], row[3])
     return units
 
-def configure_vft(
-    file = None                                              
-    ):
-    if(file == None):
-        configure_account_fields(VFT_FILE_NAME)
-        configure_data_fields(VFT_FILE_NAME)
-        configure_email_fields(VFT_FILE_NAME)
-    if(os.path.exists(file)):
-        configure_account_fields(file)
-        configure_data_fields(file)
-        configure_email_fields(file)
-
-
-    df = pd.read_excel(io=file, sheet_name=UNITS_SHEET)
+def configure_vft(isHourly):
+    configure_account_fields(VFT_FILE_NAME)
+    configure_data_fields(VFT_FILE_NAME)
+    configure_email_fields(VFT_FILE_NAME)
+    if isHourly:
+        sheet_to_read = HOURLY_UNITS_SHEET
+    else:
+        sheet_to_read = UNITS_SHEET
+    df = pd.read_excel(io=VFT_FILE_NAME, sheet_name=sheet_to_read)
     df = df.fillna("")
     df.drop(df.columns[4], axis=1, inplace=True)
     
@@ -116,7 +101,7 @@ def configure_email_fields(PLATFORM_FILE_NAME):
             lst[i] = lst[i].strip()
         return lst
         
-    global SMTP_SERVER, SENDER_EMAIL, RECIPIENTS_DAILY, RECIPIENTS_HOURLY, EMAIL_API_KEY
+    global SMTP_SERVER, SENDER_EMAIL, RECIPIENTS_DAILY, RECIPIENTS_HOURLY, EMAIL_API_KEY, PORT
     df = pd.read_excel(io=PLATFORM_FILE_NAME, sheet_name=EMAIL_SHEET)
 
     SMTP_SERVER = df.iloc[0][1]
@@ -126,7 +111,6 @@ def configure_email_fields(PLATFORM_FILE_NAME):
     RECIPIENTS_DAILY = parse_recipients_field(df.iloc[5][1])
     RECIPIENTS_HOURLY = parse_recipients_field(df.iloc[4][1])
     
-
 ### Logic
 # ONLINE    -- Dataplicity online + platform showing logs in the last WITHIN_HOURS
 # PARTIAL   -- Dataplicity online + platform showing logs in the last WITHIN_DAYS
@@ -134,23 +118,23 @@ def configure_email_fields(PLATFORM_FILE_NAME):
 def run_dataplicity_status():
     # get auth token
     url = "https://apps.dataplicity.com/auth/"
-    
     rq = requests.post(url, data=DATAPLICITY_LOGIN)
     token = rq.json()["token"]
 
     endpoint = "https://apps.dataplicity.com/devices/"
     headers = {"Authorization": f"Token {token}"}
-
-    response = requests.get(endpoint, headers=headers)
-    json_dump = response.json()
-    statuses = {}
-    for unit in json_dump:
-        # offline by default
-        statuses[unit["name"]] = "offline"
-        if unit["online"]:
-            statuses[unit["name"]] = "online"
-
-    return statuses
+    try:
+        response = requests.get(endpoint, headers=headers)
+        json_dump = response.json()
+        statuses = {}
+        for unit in json_dump:
+            # offline by default
+            statuses[unit["name"]] = "offline"
+            if unit["online"]:
+                statuses[unit["name"]] = "online"
+        return statuses
+    except Exception as ex:
+        print(ex)
 
 
 def run_mad_status(dataplicity_status, units):
@@ -222,7 +206,6 @@ def run_mad_status(dataplicity_status, units):
             )
 
         count += 1
-
 
         start_track = get_online_from(curr_time, WITHIN_HOURS) # must show data WITHIN_HOURS to be considered 'online'
         data_logs = json_dump["data_dumps"]
@@ -416,8 +399,9 @@ def get_greetings(time):
         return "Good Evening,"
     else: 
         return "Hi,"
+    
 ### Main Code
-def generate_report(mads = False):
+def generate_report(mads = False, isHourly=False):
     statusDict = {}
     rtn = []
     document = Document()
@@ -426,12 +410,12 @@ def generate_report(mads = False):
     heading_cells = table.rows[0].cells
     heading_cells[0].text = "Unit Name"
     if mads:
-        heading_cells[1].text = "On MADs"
+        heading_cells[1].text = "MADs"
     else:
-        heading_cells[1].text = "On VFT"
+        heading_cells[1].text = "VFT"
     print("Generating report for", heading_cells[1].text)
     rtn.append(heading_cells[1].text)
-    heading_cells[2].text = "On Dataplicity"
+    heading_cells[2].text = "Dataplicity"
     heading_cells[3].text = "Location"                     
     heading_cells[4].text = "Remarks"
 
@@ -444,7 +428,7 @@ def generate_report(mads = False):
         dataplicity_status = run_dataplicity_status()
         platform_status = run_mad_status(dataplicity_status, tracked_units)
     else:
-        tracked_units = configure_vft()
+        tracked_units = configure_vft(isHourly)
         dataplicity_status = run_dataplicity_status()
         platform_status = run_vft_status(dataplicity_status, tracked_units)            
 
@@ -484,115 +468,22 @@ def generate_report(mads = False):
     remove_data_dump()
     return rtn
 
-##############################################
-########## Duplicate file for report generator
-
-def generate_report(
-        mads        = False,                                        # By default, MADs is not triggered
-        vft         = True,                                         # Instead, VFT is triggered 
-        path        = None                                          # Define the file to be parsed in (path declared)                                      
-    ):
-##### SECTION 1 
-##### CHECK FILE AVAILABILITY
-    if(path == None):                                               # If no file was parsed in as params
-        print("Error: No excel file was read in the execution")     # Print error message and
-        print("Configuration use default file")
-        path = VFT_FILE_NAME                                        # Default path
-    
-    if(not os.path.exists(path)):                                   # If the directory does not exists
-        print("Error: The directory/file requested does not exist") # Print error message and
-        #return 1                                                    # Return ID Error of 1
-    
-    if(not mads and not vft):                                       # If neither of the state is triggered
-        print("Error: MADs mode or VFT mode are neither used")      # Print error message
-        #return 2                                                    # Return ID Error of 2
-
-##### SECTION 2
-##### GENERATE FILE
-    statusDict = {}                                                 # Dictionary of status
-    rtn = []                                                        
-    document = Document()                                           # Create a new document (docx)
-    document.add_heading("Unit Status", 0)                          # Add heading for the docx
-    table = document.add_table(rows=1, cols=5)                      # Add table for the docx 
-
-    heading_cells = table.rows[0].cells                             # Populate Title for each column
-    heading_cells[0].text = "Unit Name"                             # Unit name
-    if mads:                                                        # On which platform
-        heading_cells[1].text = "On MADs"
-    if vft:
-        heading_cells[1].text = "On VFT"
-    print("Generating report for", heading_cells[1].text)
-    rtn.append(heading_cells[1].text)
-    heading_cells[2].text = "On Dataplicity"                        # On Dataplicity
-    heading_cells[3].text = "Location"                              # Location of Unit
-    heading_cells[4].text = "Remarks"                               # Notes about the unit
-
-    # because there's a dependency between dataplicity status and platform status
-    # if dataplicity offline --> unit is offline regardless of logs shown
-    dataplicity_status = None # handled below
-    
-    if mads:
-        tracked_units      = configure_mads(path)
-        dataplicity_status = run_dataplicity_status()
-        platform_status    = run_mad_status(dataplicity_status, tracked_units)
-
-    if vft:
-        tracked_units      = configure_vft(path)
-        dataplicity_status = run_dataplicity_status()
-        platform_status    = run_vft_status(dataplicity_status, tracked_units)            
-
-    for unit, values in platform_status.items():
-        unit_status_platform = values[0]
-        unit_status_dataplicity = dataplicity_status[unit]
-        location = values[1]
-        remark = values[2]
-        cells = table.add_row().cells
-        if unit_status_platform == "online":
-            _set_cell_background(cells[1], "CEEDD0")
-        elif unit_status_platform == "offline":
-            _set_cell_background(cells[1], fill="F6CACF")
-        elif unit_status_platform == "partial":
-            _set_cell_background(cells[1], fill="FBEBA6")
-        elif unit_status_platform == "error":
-            _set_cell_background(cells[1], fill="FF0000")
-
-        if unit_status_dataplicity == "online":
-            _set_cell_background(cells[2], "CEEDD0")
-        elif unit_status_dataplicity == "offline":
-            _set_cell_background(cells[2], fill="F6CACF")
-        elif unit_status_platform == "partial":
-            _set_cell_background(cells[2], fill="FBEBA6")
-        cells[0].text = unit
-        cells[1].text = unit_status_platform
-        cells[2].text = unit_status_dataplicity
-        cells[3].text = location
-        cells[4].text = remark
-        # print(unit, values)
-        statusDict[unit] = values[0]
-    
-    rtn.append(statusDict)
-    table.style = "Table Grid"
-
-    document.save(OUTPUT_FILE)
-    remove_data_dump()
-    return rtn
-
-
-
-
-
-
 def checkUnitStatus(system, state):
     jsonFile = open('data_dump/status.json')
     unitPrevStatus = json.load(jsonFile)
     offlineUnits = []
+    onlineUnits = []
     for i in unitPrevStatus:
         try:
-            if unitPrevStatus[i] != state[i] and state[i] == "offline":
-                offlineUnits.append(i)
+            if i in unitPrevStatus and i in state:
+                if unitPrevStatus[i] != state[i] and state[i] == "offline":
+                    offlineUnits.append(i)
+                elif unitPrevStatus[i] != state[i] and state[i] == "online":
+                    onlineUnits.append(i)
         except:
             print("Error Occured")
-    sendHourlyEmail(system, offlineUnits)
+    # if offlineUnits != []:
+    sendHourlyEmail(system, offlineUnits, onlineUnits)
 
 def StoreStatus(statusDict):
     json_string = json.dumps(statusDict, indent=4)
@@ -612,11 +503,28 @@ def sendDailyEmail(System):
     message['To'] = ", ".join(RECIPIENTS_DAILY)
 
     # add message body
-    body = get_greetings(formatted_time) + "\n\n"
-    body += "This Is An Automated Status Report for \"" + formatted_time + "\"\n"
-    body += "The Status Is Collected " + System + "\n\n"
-    body += "Regards," + "\n"
-    body += "OfficeUnit-CT3" + "\n"
+    # old message body
+    """ 
+    body = get_greetings(formatted_time)
+    body += "This Is An Automated Status Report Generated On " + formatted_time + " Hours
+    body += "The Status Is Collected From " + System 
+    body += "Regards," 
+    body += "OfficeUnit-CT3" 
+    """
+
+    #new message body
+    body =  "Dear Recipients,\n"
+    body += "\n"
+    body += "This is an automated status report, generated at " + formatted_time + " hours, regarding the current unit status' from VFT IOT\n"
+    body += "\n"
+    body += "Please find the report with details attached to this email. \n"
+    body += "\n"
+    body += "Should you require any further information or have any questions regarding the status report, please do not hesitate to reach out to superadmin@outlook.com.\n"
+    body += "\n"
+    body += "Thank you for your attention to this matter.\n"
+    body += "\n"
+    body += "Best Regards,\n"
+    body += "VFT IOT Team"
     message.attach(MIMEText(body, 'plain'))
 
     with open(OUTPUT_FILE, 'rb') as attachment:
@@ -629,7 +537,7 @@ def sendDailyEmail(System):
         server.login(SENDER_EMAIL, EMAIL_API_KEY)
         server.sendmail(SENDER_EMAIL, RECIPIENTS_DAILY, message.as_string())
 
-def sendHourlyEmail(System, AlertsDevice=[]):
+def sendHourlyEmail(System, OfflineDevice=[], OnlineDevice=[]):
     port = PORT # For SSL
 
     formatted_time = datetime.datetime.now().strftime("%H:%M") # get current time
@@ -641,11 +549,24 @@ def sendHourlyEmail(System, AlertsDevice=[]):
 
     # add message body
     body = get_greetings(formatted_time) + "\n\n"
-    body += "This is an alert report! Current time: " + formatted_time + "\n"
-    body += "The Following Device(s) have their status changed to offline.\n"
+    body += "This Is An Hourly Alert Report Generated On " + formatted_time + " Hours\n"
+    body += "The Status Is Collected From " + System + "\n\n"
+    body += "The Following Device(s) Have Their Status Changed To OFFLINE.\n"
     body += "---------------------------------\n"
-    for i in AlertsDevice:
-        body += i + "\n"
+    if OfflineDevice != []:
+        for i in OfflineDevice:
+            body += i + "\n"
+    else:
+        body += "None\n"
+    body += "---------------------------------\n"
+    body += "\n"
+    body += "The Following Device(s) Have Their Status Changed To ONLINE.\n"
+    body += "---------------------------------\n"
+    if OnlineDevice != []:
+        for i in OnlineDevice:
+            body += i + "\n"
+    else:
+        body += "None\n"
     body += "---------------------------------\n"
     body += "\n"
     body += "Regards," + "\n"
@@ -662,87 +583,41 @@ def sendHourlyEmail(System, AlertsDevice=[]):
         server.login(SENDER_EMAIL, EMAIL_API_KEY)
         server.sendmail(SENDER_EMAIL, RECIPIENTS_HOURLY, message.as_string())
 
-############################################################################
-#
-# Function: sysRest
-#
-# Use: This function is going to be inserted into the while loop to allow
-# some rest for the CPU, which saves a lot of energy and RAM use for the adv
-# board
-#
-# Though there has no detail to prove the efficiency of this delay, saving 
-# resource is still rather a good practice for a real time system, instead
-# of running in the while loop all the time
-#
-# This function allows rest until 29th min or 59th min of hour, to prepare
-# for runtime of the function in a timely manner
-#
-# Placement: In main function, while loop, at the start of every while loop
-#
-############################################################################
-
-def sysRest():
-    currTime = datetime.datetime.now().strftime("%H:%M:%S")
-    print("Current time is: ", currTime)
-    mins = currTime.split(":")[1]
-    mins = int(mins)
-    sec  = currTime.split(":")[2]
-    sec  = int(sec)
-    timeToSleep = 0
-    if(mins <29 and mins>1):          
-        timeToSleep = (29 - mins)*60
-        if(sec != 0 ):
-            timeToSleep -= sec
-    
-    if(mins <59 and mins>31):
-        timeToSleep = (59 - mins)*60
-        if(sec != 0):
-            timeToSleep -= sec
-    print(timeToSleep)
-    if timeToSleep > 0:
-        print("#####################")
-        print()
-        print("Proceed to sleep")
-        print("Elapsed time: ",int(timeToSleep/60) ,":",int(timeToSleep%60))
-        print()
-        print("#####################")
-        time.sleep(timeToSleep)
-        print()
-        print("System awake again...")
-        print()
-
 if __name__ == "__main__":
     print("Starting Script...")
     isMADs = False
-    isVFT  = True
-    rtn = generate_report(isMADs, isVFT, path = VFT_FILE_NAME_PATH)
+    rtn = generate_report(isMADs, isHourly=False)
+#    sendDailyEmail(rtn[0])
     StoreStatus(rtn[1])
     validSend = True
     while(1):
-        sysRest()                                                                        #uncomment this out to allow delay
-        currTime = datetime.datetime.now().strftime("%H:%M")
-        mins = currTime.split(":")[1]
-        if (currTime == "14:00" or currTime == "14:01") and validSend:
-            print("==============================================")
-            print("Starting 1400 Status Check.")
-            print("==============================================")
-            rtn = generate_report(isMADs, isVFT, path = VFT_FILE_NAME_PATH)               #Generate report
-            sendDailyEmail(rtn[0])                      #Send Daily Email
-            checkUnitStatus(rtn[0], rtn[1]);            #Check Status
-            StoreStatus(rtn[1])                         #Overwrite Status
-            validSend = False
-            print("==============================================")
-        elif (mins == "30" or mins == "31") and not validSend:
-            print("==============================================")
-            print("Resetting Checks.")
-            validSend = True
-            print("==============================================")
-        elif (mins == "00" or min =="01") and validSend:
-            print("==============================================")
-            print("Starting Hourly Check for", currTime, ".")
-            print("==============================================")
-            rtn = generate_report(isMADs, isVFT, path = VFT_FILE_NAME_PATH)               #Generate report
-            checkUnitStatus(rtn[0], rtn[1]);            #Check Status
-            StoreStatus(rtn[1])                         #Overwrite Status
-            validSend = False
-            print("==============================================")
+        try:
+            currTime = datetime.datetime.now().strftime("%H:%M")
+            mins = currTime.split(":")[1]
+            if (currTime == "14:00" or currTime == "14:01") and validSend:
+                print("==============================================")
+                print("Starting 1400 Status Check.")
+                print("==============================================")
+                rtn = generate_report(isMADs, isHourly=False)               #Generate report
+                sendDailyEmail(rtn[0])                      #Send Daily Email
+                checkUnitStatus(rtn[0], rtn[1]);            #Check Status
+                StoreStatus(rtn[1])                         #Overwrite Status
+                validSend = False
+                print("==============================================")
+            elif (mins == "30" or mins == "31") and not validSend:
+                print("==============================================")
+                print("Resetting Checks.")
+                validSend = True
+                print("==============================================")
+            elif (mins == "00" or min =="01") and validSend:
+                print("==============================================")
+                print("Starting Hourly Check for", currTime, ".")
+                print("==============================================")
+                rtn = generate_report(isMADs, isHourly=True)               #Generate report
+                checkUnitStatus(rtn[0], rtn[1]);            #Check Status
+                StoreStatus(rtn[1])                         #Overwrite Status
+                validSend = False
+                print("==============================================")
+            time.sleep(30)
+        except Exception as ex:
+            print(ex)
