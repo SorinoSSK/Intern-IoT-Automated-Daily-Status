@@ -44,6 +44,8 @@ PORT                        = None
 FAILED_RETRIEVAL = "Likely a server issue. Refresh the unit's logs data page on platform."
 
 #======================= Configuration =======================#
+# Notes: 
+# MADs configuration is not updated to the same state as VFT.
 def configure_mads():
     configure_account_fields(MADS_FILE_NAME)
     configure_data_fields(MADS_FILE_NAME)
@@ -164,10 +166,10 @@ def run_mad_status(dataplicity_status, units):
             continue
         
         # Unit is offline on dataplicity
-        if dataplicity_status[unit_name] == "offline":
-            print("Dataplicity indicates " + unit_name + " is offline")
-            status[unit_name] = ("offline", loc, remarks)
-            continue
+        # if dataplicity_status[unit_name] == "offline":
+        #     print("Dataplicity indicates " + unit_name + " is offline")
+        #     status[unit_name] = ("offline", loc, remarks)
+        #     continue
         
         endpoint = (
             "https://datakrewtech.com/api/iot_mgmt/orgs/3/projects/70/gateways/"
@@ -401,7 +403,7 @@ def get_greetings(time):
         return "Hi,"
     
 ### Main Code
-def generate_report(mads = False, isHourly=False):
+def generate_report(mads = False, isHourly = False):
     statusDict = {}
     rtn = []
     document = Document()
