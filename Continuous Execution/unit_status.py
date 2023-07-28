@@ -578,7 +578,7 @@ def sendEmail(System, formatted_time, isHourly=False, OfflineDevice=[], OnlineDe
         
     message['From'] = SENDER_EMAIL
 
-    if isHourly:
+    if isHourly:                                                            # isHourly is true only when performing check unit status
         body = buildHourlyEmail(System, formatted_time, OfflineDevice, OnlineDevice)
     else:
         body = buildDailyEmail(System, formatted_time)
