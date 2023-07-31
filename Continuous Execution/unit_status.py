@@ -486,7 +486,7 @@ def generate_report(formatted_time="00:00", mads=False, isBlockEmail=False):
         dataplicity_status = run_dataplicity_status()
         platform_status = run_mad_status(dataplicity_status, tracked_units)
     else:
-        tracked_units = configure_vft(isHourly=formatted_time==DAILY_EMAIL_TIME)
+        tracked_units = configure_vft(isHourly=(formatted_time!=DAILY_EMAIL_TIME and formatted_time!=VALIDATION_EMAIL_TIME))
         dataplicity_status = run_dataplicity_status()
         platform_status = run_vft_status(dataplicity_status, tracked_units)            
 
@@ -659,7 +659,7 @@ if __name__ == "__main__":
     while(1):
         try:
             currTime = datetime.datetime.now().strftime("%H:%M")
-            # currTime = "14:00"                                                # For debug only
+            # currTime = "17:00"                                                # For debug only
 
             mins = currTime.split(":")[1]
             if currTime == DAILY_EMAIL_TIME and validSend:
